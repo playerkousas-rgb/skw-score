@@ -1,0 +1,101 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-background: #020B1A;
+  --color-foreground: #E8ECF4;
+  --color-muted: #7B8BA5;
+  --color-card: #081630;
+  --color-border: #152244;
+  --color-primary: #38BDF8;
+  --color-primary-light: #7DD3FC;
+  --color-accent: #818CF8;
+  --color-accent-light: #A5B4FC;
+  --color-success: #34D399;
+  --color-warning: #FBBF24;
+  --color-danger: #F87171;
+  --color-info: #60A5FA;
+  --color-navy: #02133E;
+  --color-navy-light: #0A2055;
+  --font-sans: 'DM Sans', sans-serif;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--color-background);
+  color: var(--color-foreground);
+}
+
+.gradient-text {
+  background: linear-gradient(135deg, #38BDF8, #818CF8, #A5B4FC);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.gradient-bg {
+  background: linear-gradient(135deg, #38BDF8, #818CF8);
+}
+
+.gradient-border {
+  position: relative;
+  border-radius: 16px;
+}
+
+.gradient-border::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 16px;
+  padding: 1.5px;
+  background: linear-gradient(135deg, #38BDF8, #818CF8, #A5B4FC);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.glass-card {
+  background: rgba(8, 22, 48, 0.85);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(21, 34, 68, 0.8);
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 20px rgba(56, 189, 248, 0.15); }
+  50% { box-shadow: 0 0 40px rgba(56, 189, 248, 0.3); }
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 3s ease-in-out infinite;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1E3A5F;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #2D5080;
+}
