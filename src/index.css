@@ -2,7 +2,7 @@
 @import "tailwindcss";
 
 @theme {
-  --color-background: #020B1A;
+  --color-background: #02133e;
   --color-foreground: #E8ECF4;
   --color-muted: #7B8BA5;
   --color-card: #081630;
@@ -98,4 +98,25 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: #2D5080;
+}
+
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  .print\:hidden {
+    display: none !important;
+  }
+  .print\:block {
+    display: block !important;
+  }
+  .page-break-after {
+    page-break-after: always;
+  }
+  /* Ensure backgrounds render when printing */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
 }

@@ -64,6 +64,8 @@ interface AppState {
   submissions: Submission[];
   currentSubmission: Submission | null;
   isUploading: boolean;
+  openAiApiKey: string;
+  setOpenAiApiKey: (key: string) => void;
   addSubmission: (sub: Submission) => void;
   addBatchSubmissions: (subs: Submission[]) => void;
   updateSubmission: (id: string, data: Partial<Submission>) => void;
@@ -99,6 +101,8 @@ export const useAppStore = create<AppState>()(
       submissions: [],
       currentSubmission: null,
       isUploading: false,
+      openAiApiKey: "",
+      setOpenAiApiKey: (key) => set({ openAiApiKey: key }),
       addSubmission: (sub) => set((s) => ({ submissions: [sub, ...s.submissions] })),
       addBatchSubmissions: (subs) => set((s) => ({ submissions: [...subs, ...s.submissions] })),
       updateSubmission: (id, data) =>
@@ -117,7 +121,7 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: 'scoreai-storage',
-      partialize: (state) => ({ submissions: state.submissions }),
+      partialize: (state) => ({ submissions: state.submissions, openAiApiKey: state.openAiApiKey }),
     }
   )
 );

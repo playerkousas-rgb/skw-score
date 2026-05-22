@@ -11,6 +11,8 @@ import {
   useAppStore, type Submission, type ContestConfig, type CriterionDef, type ContestMode, type ScoringMode,
   DEFAULT_COLORING_CRITERIA, DEFAULT_DESIGN_CRITERIA, MAX_FILES, METRIC_TYPE_OPTIONS, type MetricType,
 } from '../store/appStore';
+import { analyzeWithGPT4o } from "../lib/gptAnalyzer";
+import { KeyRound,  } from "lucide-react";
 import { analyzeFile, generateThumbnail, generateFullImage } from '../lib/analyzer';
 
 function formatSize(bytes: number) {
@@ -25,12 +27,13 @@ type Step = 'setup' | 'upload' | 'scoring';
 
 export default function UploadPage() {
   const navigate = useNavigate();
-  const { addBatchSubmissions } = useAppStore();
+  const { addBatchSubmissions, openAiApiKey, setOpenAiApiKey } = useAppStore();
   const [step, setStep] = useState<Step>('setup');
 
   // Contest config
   const [mode, setMode] = useState<ContestMode>('coloring');
   const [scoringMode, setScoringMode] = useState<ScoringMode>('ai');
+  const [scoringEngine, setScoringEngine] = useState<'local' | 'gpt4o'>('local');
   const [theme, setTheme] = useState('');
   const [description, setDescription] = useState('');
   const [criteria, setCriteria] = useState<CriterionDef[]>(DEFAULT_COLORING_CRITERIA);
@@ -115,6 +118,10 @@ export default function UploadPage() {
   };
 
   const startBatchScoring = async () => {
+    if (scoringEngine === 'gpt4o' && !openAiApiKey) {
+      alert('請先在設定中輸入 OpenAI API Key 才能使用 GPT-4o 引擎進行評分');
+      return;
+    }
     if (filesWithPreview.length === 0) return;
     setStep('scoring');
     setCompletedCount(0);
@@ -151,7 +158,7 @@ export default function UploadPage() {
           const idx = i + j;
           const file = sf.file;
           const [scoreResult, thumbnail, fullImage] = await Promise.all([
-            analyzeFile(file, finalConfig),
+            scoringEngine === 'gpt4o' ? analyzeWithGPT4o(file, finalConfig, openAiApiKey) : analyzeFile(file, finalConfig),
             generateThumbnail(file),
             generateFullImage(file),
           ]);
@@ -397,14 +404,58 @@ export default function UploadPage() {
                 </div>
               )}
 
-              <button
-                onClick={() => setStep('upload')}
-                disabled={!canProceed()}
-                className={`w-full py-4 rounded-2xl text-base font-bold flex items-center justify-center gap-2 transition-all ${
-                  canProceed() ? 'gradient-bg text-white shadow-xl shadow-primary/25 hover:opacity-90' : 'bg-navy-light text-muted/60 cursor-not-allowed'
-                }`}
-              >
-                下一步：上傳作品
+              
+              {/* Engine Selection */}
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
+                <h3 className="font-bold text-sm mb-3">選擇評分引擎</h3>
+                <div className="grid sm:grid-cols-2 gap-3 mb-4">
+                  {[
+                    { id: 'local', icon: Cpu, title: '本地快速分析', desc: '基於像素運算，速度快且免費' },
+                    { id: 'gpt4o', icon: Sparkles, title: 'GPT-4o Vision', desc: '專業藝術評分，具備真實鑑賞力' },
+                  ].map((eng) => (
+                    <button
+                      key={eng.id}
+                      onClick={() => setScoringEngine(eng.id as 'local' | 'gpt4o')}
+                      className={`flex items-start gap-3 p-4 rounded-xl border text-left transition-all ${scoringEngine === eng.id ? 'bg-primary/10 border-primary shadow-sm shadow-primary/10' : 'bg-card border-border hover:border-primary/50'}`}
+                    >
+                      <eng.icon className={`w-5 h-5 flex-shrink-0 mt-0.5 ${scoringEngine === eng.id ? 'text-primary' : 'text-muted'}`} />
+                      <div>
+                        <div className={`text-sm font-bold ${scoringEngine === eng.id ? 'text-primary' : 'text-foreground'}`}>{eng.title}</div>
+                        <div className="text-xs text-muted mt-1">{eng.desc}</div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+
+                {scoringEngine === 'gpt4o' && (
+                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="overflow-hidden">
+                    <div className="p-4 rounded-xl bg-card border border-border">
+                      <label className="block text-sm font-bold mb-2 flex items-center gap-2">
+                        <KeyRound className="w-4 h-4 text-primary" />
+                        OpenAI API Key
+                      </label>
+                      <input
+                        type="password"
+                        placeholder="sk-..."
+                        value={openAiApiKey}
+                        onChange={(e) => setOpenAiApiKey(e.target.value)}
+                        className="w-full px-4 py-2.5 rounded-xl bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                      />
+                      <p className="text-xs text-muted mt-2">
+                        您的 API Key 僅會儲存於本地瀏覽器中，並直接向 OpenAI 發送請求，我們不會伺服器端保存您的金鑰。
+                      </p>
+                    </div>
+                  </motion.div>
+                )}
+              </motion.div>
+
+            <button
+              onClick={() => setStep('upload')}
+              disabled={!canProceed()}
+              className={`w-full flex items-center justify-center gap-2 py-4 rounded-xl text-sm font-bold transition-all ${
+                canProceed() ? 'gradient-bg text-white shadow-lg shadow-primary/20 hover:opacity-90' : 'bg-border/50 text-muted cursor-not-allowed'
+              }`}>
+              下一步：上傳作品
                 <ArrowRight className="w-5 h-5" />
               </button>
             </motion.div>

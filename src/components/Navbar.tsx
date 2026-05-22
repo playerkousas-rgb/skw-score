@@ -1,6 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Sparkles, Upload, History, LayoutDashboard, Menu, X } from 'lucide-react';
+import { Sparkles, Upload, History, LayoutDashboard, Menu, X, Image as ImageIcon } from 'lucide-react';
 import { useState } from 'react';
 
 const navItems = [
@@ -8,6 +8,7 @@ const navItems = [
   { path: '/upload', label: '上傳作品', icon: Upload },
   { path: '/history', label: '歷史紀錄', icon: History },
   { path: '/dashboard', label: '儀表板', icon: LayoutDashboard },
+  { path: '/exhibition', label: '展覽館', icon: ImageIcon },
 ];
 
 export default function Navbar() {
@@ -15,7 +16,7 @@ export default function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 glass-card border-b border-border">
+    <nav className="fixed top-0 left-0 right-0 z-50 glass-card border-b border-border print:hidden">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           <Link to="/" className="flex items-center gap-2.5 group">
