@@ -4,7 +4,7 @@
  * Supports two modes: coloring (pixel-based) and design (pixel + theme context).
  */
 
-import type { ScoreResult, ContestConfig, CriterionDef } from '../store/appStore';
+import type { ScoreResult, ContestConfig } from '../store/appStore';
 
 // ─── Image Analysis ───
 
@@ -95,9 +95,16 @@ function analyzeImageData(imageData: ImageData): ImageMetrics {
 function loadImageFromFile(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = URL.createObjectURL(file);
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(img);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('無法讀取圖片'));
+    };
+    img.src = objectUrl;
   });
 }
 
@@ -265,7 +272,7 @@ function scoreFromImageMetrics(m: ImageMetrics, config?: ContestConfig): ScoreRe
 function buildComment(m: ImageMetrics, total: number, cats: ScoreResult['categories'], config?: ContestConfig): string {
   const best = cats.reduce((a, b) => (a.score > b.score ? a : b));
   const worst = cats.reduce((a, b) => (a.score < b.score ? a : b));
-  let level = total >= 80 ? '表現優秀' : total >= 65 ? '表現中等偏上' : total >= 50 ? '表現尚可' : total >= 35 ? '有較大改善空間' : '需要重大改進';
+  const level = total >= 80 ? '表現優秀' : total >= 65 ? '表現中等偏上' : total >= 50 ? '表現尚可' : total >= 35 ? '有較大改善空間' : '需要重大改進';
 
   let prefix = '';
   if (config?.mode === 'design' && config.theme) {

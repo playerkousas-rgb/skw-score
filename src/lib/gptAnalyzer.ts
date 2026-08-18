@@ -73,32 +73,43 @@ ${criteriaList}
     const parsed = JSON.parse(content);
 
     // 映射確保指標一致性，並加入原本的 weight
+    const parsedCategories = Array.isArray(parsed.categories) ? parsed.categories : [];
     const mappedCategories = config.criteria.map((c) => {
-      const matching = parsed.categories.find((pc: any) => pc.name === c.name) || { score: 60, feedback: '無法取得對應評分' };
+      const matching = parsedCategories.find((pc: { name?: unknown }) => pc.name === c.name) as { score?: unknown; feedback?: unknown } | undefined;
+      const score = typeof matching?.score === 'number' && Number.isFinite(matching.score)
+        ? Math.max(0, Math.min(100, Math.round(matching.score)))
+        : 60;
       return {
         name: c.name,
-        score: matching.score,
+        score,
         maxScore: 100,
-        feedback: matching.feedback,
+        feedback: typeof matching?.feedback === 'string' ? matching.feedback : 'AI 未提供此項目的詳細評語。',
         weight: c.weight,
       };
     });
 
-    // 重新計算加權總分確保精確
+    // Always calculate locally so an incorrect model total cannot override the
+    // configured weights shown in the report.
+    const totalWeight = mappedCategories.reduce((sum, cat) => sum + cat.weight, 0) || 1;
     const calculatedTotal = Math.round(
-      mappedCategories.reduce((sum, cat) => sum + cat.score * (cat.weight / 100), 0)
+      mappedCategories.reduce((sum, cat) => sum + cat.score * cat.weight, 0) / totalWeight
     );
 
+    const asStringArray = (value: unknown) => Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === 'string').slice(0, 8)
+      : [];
+
     return {
-      totalScore: parsed.totalScore || calculatedTotal,
+      totalScore: calculatedTotal,
       categories: mappedCategories,
-      aiComment: parsed.aiComment || 'AI 分析完成。',
-      suggestions: parsed.suggestions || [],
-      strengths: parsed.strengths || [],
-      tags: parsed.tags || [],
+      aiComment: typeof parsed.aiComment === 'string' ? parsed.aiComment : 'AI 分析完成。',
+      suggestions: asStringArray(parsed.suggestions),
+      strengths: asStringArray(parsed.strengths),
+      tags: asStringArray(parsed.tags),
     };
-  } catch (err: any) {
-    console.error('GPT analysis error:', err);
-    throw new Error(err.message || '分析過程發生未知錯誤');
+  } catch (error: unknown) {
+    console.error('GPT analysis error:', error);
+    const message = error instanceof Error ? error.message : '分析過程發生未知錯誤';
+    throw new Error(message);
   }
 }

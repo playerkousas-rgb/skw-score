@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft, Download, Share2, Sparkles, Lightbulb, ThumbsUp,
-  Tag, TrendingUp, FileText, Info, ZoomIn, X,
+  Tag, TrendingUp, FileText, Info, ZoomIn, X, Check,
 } from 'lucide-react';
 import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, ResponsiveContainer } from 'recharts';
 import ScoreRing from '../components/ScoreRing';
@@ -15,6 +15,7 @@ export default function ResultPage() {
   const navigate = useNavigate();
   const { submissions, currentSubmission, setCurrentSubmission } = useAppStore();
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const submission = currentSubmission?.id === id
     ? currentSubmission
@@ -24,7 +25,67 @@ export default function ResultPage() {
     if (submission && submission.id !== currentSubmission?.id) {
       setCurrentSubmission(submission);
     }
-  }, [submission]);
+  }, [submission, currentSubmission?.id, setCurrentSubmission]);
+
+  useEffect(() => {
+    if (!lightboxOpen) return;
+
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setLightboxOpen(false);
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.removeEventListener('keydown', closeOnEscape);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [lightboxOpen]);
+
+  const showNotice = (message: string) => {
+    setNotice(message);
+    window.setTimeout(() => setNotice(null), 2600);
+  };
+
+  const handleShare = async (result: NonNullable<typeof submission>) => {
+    const url = window.location.href;
+    const shareData = {
+      title: `ScoreAI 評分報告｜${result.fileName}`,
+      text: `「${result.fileName}」的 ScoreAI 總分為 ${result.score?.totalScore ?? 0} 分。`,
+      url,
+    };
+
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData);
+        showNotice('已開啟分享選單');
+      } else if (navigator.clipboard) {
+        await navigator.clipboard.writeText(url);
+        showNotice('報告連結已複製');
+      } else {
+        showNotice('請複製瀏覽器網址分享報告');
+      }
+    } catch (error) {
+      // Closing the native share sheet is not an error from the user perspective.
+      if (error instanceof DOMException && error.name === 'AbortError') return;
+      showNotice('分享失敗，請稍後再試');
+    }
+  };
+
+  const handleDownload = (result: NonNullable<typeof submission>) => {
+    const report = { ...result, fullImage: undefined, thumbnail: undefined };
+    const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), ...report }, null, 2)], { type: 'application/json;charset=utf-8' });
+    const downloadUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = downloadUrl;
+    anchor.download = `${result.fileName.replace(/[^a-zA-Z0-9._-]+/g, '-')}-scoreai-report.json`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(downloadUrl);
+    showNotice('評分報告已下載');
+  };
 
   if (!submission || !submission.score) {
     return (
@@ -71,12 +132,40 @@ export default function ResultPage() {
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button className="p-2.5 rounded-xl border border-border hover:bg-card transition-colors"><Share2 className="w-4 h-4" /></button>
-            <button className="p-2.5 rounded-xl border border-border hover:bg-card transition-colors"><Download className="w-4 h-4" /></button>
-            <Link to="/upload" className="gradient-bg text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:opacity-90 transition-opacity shadow-lg shadow-primary/20">再次上傳</Link>
+          <div className="flex w-full items-center gap-2 sm:w-auto">
+            <button
+              type="button"
+              onClick={() => handleShare(submission)}
+              aria-label="分享評分報告"
+              title="分享評分報告"
+              className="min-h-11 min-w-11 rounded-xl border border-border p-2.5 transition-colors hover:bg-card"
+            >
+              <Share2 className="mx-auto h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDownload(submission)}
+              aria-label="下載評分報告"
+              title="下載評分報告"
+              className="min-h-11 min-w-11 rounded-xl border border-border p-2.5 transition-colors hover:bg-card"
+            >
+              <Download className="mx-auto h-4 w-4" />
+            </button>
+            <Link to="/upload" className="gradient-bg flex min-h-11 flex-1 items-center justify-center rounded-xl px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-primary/20 transition-opacity hover:opacity-90 sm:flex-none sm:px-5">再次上傳</Link>
           </div>
         </motion.div>
+
+        {notice && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="fixed inset-x-4 top-20 z-[110] mx-auto flex max-w-sm items-center justify-center gap-2 rounded-xl border border-success/30 bg-card px-4 py-3 text-sm font-semibold text-success shadow-xl sm:inset-x-auto sm:right-6 sm:left-auto"
+            role="status"
+          >
+            <Check className="h-4 w-4" />
+            {notice}
+          </motion.div>
+        )}
 
         {/* Contest context */}
         {contestConfig && (

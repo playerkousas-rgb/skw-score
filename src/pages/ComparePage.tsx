@@ -6,7 +6,6 @@ import {
   ArrowUpDown,
   Upload,
   FileText,
-  Image,
   Sparkles,
   ChevronDown,
   ChevronUp,
@@ -16,8 +15,6 @@ import {
   Trophy,
   Medal,
   Award,
-  Tag,
-  Info,
 } from 'lucide-react';
 import {
   RadarChart,
@@ -28,8 +25,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
-import ScoreRing from '../components/ScoreRing';
-import { useAppStore, type Submission } from '../store/appStore';
+import { useAppStore } from '../store/appStore';
 
 type SortKey = string;
 type ViewMode = 'grid' | 'table';
@@ -129,8 +125,8 @@ export default function ComparePage() {
   const radarItems = sorted.slice(0, Math.min(5, sorted.length));
   const categoryNames = (batchItems[0]?.score?.categories ?? []).map((c) => c.name.slice(0, 4));
   const radarData = categoryNames.map((name, i) => {
-    const entry: Record<string, any> = { subject: name };
-    radarItems.forEach((item, j) => {
+    const entry: Record<string, number | string> = { subject: name };
+    radarItems.forEach((item) => {
       entry[item.id] = item.score!.categories[i]?.score ?? 0;
     });
     return entry;

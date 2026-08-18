@@ -1,7 +1,7 @@
 import { Link, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Sparkles, Upload, History, LayoutDashboard, Menu, X, Image as ImageIcon } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const navItems = [
   { path: '/', label: '首頁', icon: Sparkles },
@@ -14,9 +14,30 @@ const navItems = [
 export default function Navbar() {
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!mobileOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMobileOpen(false);
+    };
+    const handlePointerDown = (event: PointerEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setMobileOpen(false);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('pointerdown', handlePointerDown);
+    };
+  }, [mobileOpen]);
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 glass-card border-b border-border print:hidden">
+    <nav ref={menuRef} aria-label="主要導覽" className="fixed top-0 left-0 right-0 z-50 glass-card border-b border-border print:hidden">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           <Link to="/" className="flex items-center gap-2.5 group">
@@ -51,14 +72,21 @@ export default function Navbar() {
             </Link>
           </div>
 
-          <button className="md:hidden p-2 rounded-xl hover:bg-border/50 transition-colors" onClick={() => setMobileOpen(!mobileOpen)}>
+          <button
+            type="button"
+            aria-label={mobileOpen ? '關閉導覽選單' : '開啟導覽選單'}
+            aria-expanded={mobileOpen}
+            aria-controls="mobile-navigation"
+            className="md:hidden min-h-11 min-w-11 p-2 rounded-xl hover:bg-border/50 transition-colors flex items-center justify-center"
+            onClick={() => setMobileOpen(!mobileOpen)}
+          >
             {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
         </div>
       </div>
 
       {mobileOpen && (
-        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="md:hidden glass-card border-t border-border px-4 pb-4 pt-2">
+        <motion.div id="mobile-navigation" initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="md:hidden glass-card border-t border-border px-4 pb-4 pt-2 max-h-[calc(100dvh-4rem)] overflow-y-auto">
           {navItems.map((item) => {
             const isActive = location.pathname === item.path;
             return (

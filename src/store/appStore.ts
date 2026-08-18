@@ -71,6 +71,7 @@ interface AppState {
   updateSubmission: (id: string, data: Partial<Submission>) => void;
   setCurrentSubmission: (sub: Submission | null) => void;
   setIsUploading: (val: boolean) => void;
+  clearSubmission: (id: string) => void;
   clearAllSubmissions: () => void;
   clearBatch: (batchId: string) => void;
 }
@@ -113,6 +114,10 @@ export const useAppStore = create<AppState>()(
         })),
       setCurrentSubmission: (sub) => set({ currentSubmission: sub }),
       setIsUploading: (val) => set({ isUploading: val }),
+      clearSubmission: (id) => set((s) => ({
+        submissions: s.submissions.filter((sub) => sub.id !== id),
+        currentSubmission: s.currentSubmission?.id === id ? null : s.currentSubmission,
+      })),
       clearAllSubmissions: () => set({ submissions: [], currentSubmission: null }),
       clearBatch: (batchId) => set((s) => ({
         submissions: s.submissions.filter((sub) => sub.batchId !== batchId),
@@ -121,7 +126,17 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: 'scoreai-storage',
-      partialize: (state) => ({ submissions: state.submissions, openAiApiKey: state.openAiApiKey }),
+      // Full-size previews can quickly exceed mobile localStorage quotas when a
+      // batch contains many images. Thumbnails keep the history useful after a
+      // reload while the full preview remains available for the current session.
+      partialize: (state) => ({
+        submissions: state.submissions.map((original) => {
+          const submission = { ...original };
+          delete submission.fullImage;
+          return submission;
+        }),
+        openAiApiKey: state.openAiApiKey,
+      }),
     }
   )
 );

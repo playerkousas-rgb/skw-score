@@ -1,9 +1,9 @@
-import { useCallback, useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useDropzone } from 'react-dropzone';
+import { useCallback, useRef, useState, useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { useDropzone, type FileRejection } from 'react-dropzone';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Upload, FileText, X, Sparkles, CheckCircle2, Loader2,
+  FileText, X, Sparkles, CheckCircle2, Loader2,
   Images, Palette, PenTool, ArrowRight, ArrowLeft, Plus, Trash2, GripVertical,
   AlertCircle, Cpu, SlidersHorizontal,
 } from 'lucide-react';
@@ -12,18 +12,19 @@ import {
   DEFAULT_COLORING_CRITERIA, DEFAULT_DESIGN_CRITERIA, MAX_FILES, METRIC_TYPE_OPTIONS, type MetricType,
 } from '../store/appStore';
 import { analyzeWithGPT4o } from "../lib/gptAnalyzer";
-import { KeyRound,  } from "lucide-react";
+import { KeyRound } from 'lucide-react';
 import { analyzeFile, generateThumbnail, generateFullImage } from '../lib/analyzer';
 
-function formatSize(bytes: number) {
-  if (bytes < 1024) return bytes + ' B';
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-}
-
 interface FileWithPreview { file: File; preview?: string; }
-interface ScoringFile { file: File; status: 'waiting' | 'analyzing' | 'done'; preview?: string; score?: number; }
+interface ScoringFile {
+  file: File;
+  status: 'waiting' | 'analyzing' | 'done' | 'error';
+  preview?: string;
+  score?: number;
+  error?: string;
+}
 type Step = 'setup' | 'upload' | 'scoring';
+const MAX_UPLOAD_SIZE = 25 * 1024 * 1024;
 
 export default function UploadPage() {
   const navigate = useNavigate();
@@ -42,53 +43,91 @@ export default function UploadPage() {
   const [filesWithPreview, setFilesWithPreview] = useState<FileWithPreview[]>([]);
   const [scoringFiles, setScoringFiles] = useState<ScoringFile[]>([]);
   const [completedCount, setCompletedCount] = useState(0);
+  const [uploadNotice, setUploadNotice] = useState<string | null>(null);
+  const [scoringError, setScoringError] = useState<string | null>(null);
+  const previewUrlsRef = useRef<Set<string>>(new Set());
 
-  // Reset criteria when mode or scoringMode changes
-  useEffect(() => {
+  const handleModeChange = (nextMode: ContestMode) => {
+    setMode(nextMode);
     if (scoringMode === 'ai') {
+      setCriteria(nextMode === 'coloring' ? DEFAULT_COLORING_CRITERIA : DEFAULT_DESIGN_CRITERIA);
+    }
+  };
+
+  const handleScoringModeChange = (nextMode: ScoringMode) => {
+    setScoringMode(nextMode);
+    if (nextMode === 'ai') {
+      setCriteria(mode === 'coloring' ? DEFAULT_COLORING_CRITERIA : DEFAULT_DESIGN_CRITERIA);
+    } else if (criteria.length === 0) {
       setCriteria(mode === 'coloring' ? DEFAULT_COLORING_CRITERIA : DEFAULT_DESIGN_CRITERIA);
     }
-    // For custom mode, keep user's criteria (or init from defaults if empty/switching)
-  }, [mode]);
-
-  useEffect(() => {
-    if (scoringMode === 'ai') {
-      setCriteria(mode === 'coloring' ? DEFAULT_COLORING_CRITERIA : DEFAULT_DESIGN_CRITERIA);
-    } else {
-      // When switching to custom, start with defaults as template
-      setCriteria((prev) =>
-        prev.length > 0 ? prev : (mode === 'coloring' ? DEFAULT_COLORING_CRITERIA : DEFAULT_DESIGN_CRITERIA)
-      );
-    }
-  }, [scoringMode]);
+  };
 
   const onDrop = useCallback((accepted: File[]) => {
-    const newFiles: FileWithPreview[] = accepted.map((file) => ({
-      file,
-      preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined,
-    }));
+    let hasDuplicates = false;
+    let reachedLimit = false;
     setFilesWithPreview((prev) => {
+      const existingKeys = new Set(prev.map(({ file }) => `${file.name}-${file.size}-${file.lastModified}`));
+      const uniqueFiles = accepted.filter((file) => {
+        const key = `${file.name}-${file.size}-${file.lastModified}`;
+        if (existingKeys.has(key)) return false;
+        existingKeys.add(key);
+        return true;
+      });
+
+      hasDuplicates = uniqueFiles.length !== accepted.length;
+
+      const newFiles: FileWithPreview[] = uniqueFiles.map((file) => {
+        const preview = file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined;
+        if (preview) previewUrlsRef.current.add(preview);
+        return { file, preview };
+      });
       const combined = [...prev, ...newFiles];
       if (combined.length > MAX_FILES) {
-        newFiles.slice(combined.length - MAX_FILES).forEach((f) => { if (f.preview) URL.revokeObjectURL(f.preview); });
+        combined.slice(MAX_FILES).forEach((f) => {
+          if (f.preview) {
+            URL.revokeObjectURL(f.preview);
+            previewUrlsRef.current.delete(f.preview);
+          }
+        });
+        reachedLimit = true;
         return combined.slice(0, MAX_FILES);
       }
       return combined;
     });
+    if (reachedLimit) setUploadNotice(`最多只能上傳 ${MAX_FILES} 個檔案`);
+    else if (hasDuplicates) setUploadNotice('已略過重複檔案');
   }, []);
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop, multiple: true });
+  const onDropRejected = useCallback((rejections: FileRejection[]) => {
+    const firstError = rejections[0]?.errors[0]?.message;
+    setUploadNotice(firstError ? `部分檔案未加入：${firstError}` : '部分檔案未能加入，請確認檔案大小。');
+  }, []);
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    onDropRejected,
+    multiple: true,
+    maxSize: MAX_UPLOAD_SIZE,
+  });
 
   const removeFile = (idx: number) => {
     setFilesWithPreview((prev) => {
       const removed = prev[idx];
-      if (removed.preview) URL.revokeObjectURL(removed.preview);
+      if (removed.preview) {
+        URL.revokeObjectURL(removed.preview);
+        previewUrlsRef.current.delete(removed.preview);
+      }
       return prev.filter((_, i) => i !== idx);
     });
   };
 
   useEffect(() => {
-    return () => { filesWithPreview.forEach((f) => { if (f.preview) URL.revokeObjectURL(f.preview); }); };
+    const previewUrls = previewUrlsRef.current;
+    return () => {
+      previewUrls.forEach((url) => URL.revokeObjectURL(url));
+      previewUrls.clear();
+    };
   }, []);
 
   const totalWeight = criteria.reduce((s, c) => s + c.weight, 0);
@@ -119,18 +158,19 @@ export default function UploadPage() {
 
   const startBatchScoring = async () => {
     if (scoringEngine === 'gpt4o' && !openAiApiKey) {
-      alert('請先在設定中輸入 OpenAI API Key 才能使用 GPT-4o 引擎進行評分');
+      setScoringError('請先輸入 OpenAI API Key，才能使用 GPT-4o 引擎。');
       return;
     }
     if (filesWithPreview.length === 0) return;
+
     setStep('scoring');
     setCompletedCount(0);
+    setScoringError(null);
 
-    // Filter out empty-name criteria for custom mode
     const finalConfig: ContestConfig = {
       ...contestConfig,
       criteria: scoringMode === 'custom'
-        ? criteria.filter((c) => c.name.trim()).map((c) => ({ ...c, id: c.id.startsWith('custom-') ? c.id : c.id }))
+        ? criteria.filter((c) => c.name.trim())
         : criteria,
     };
 
@@ -141,34 +181,47 @@ export default function UploadPage() {
 
     const batchId = 'batch-' + Date.now();
     const results: Submission[] = [];
+    let failedCount = 0;
 
-    // Process in parallel batches of 3 for speed
+    // Process in parallel batches of three. Promise.allSettled prevents one
+    // broken file (or one failed API request) from blocking every other file.
     const BATCH_SIZE = 3;
     for (let i = 0; i < initial.length; i += BATCH_SIZE) {
       const chunk = initial.slice(i, i + BATCH_SIZE);
       const chunkIndices = chunk.map((_, j) => i + j);
 
-      // Mark as analyzing
       setScoringFiles((prev) => prev.map((sf, j) =>
-        chunkIndices.includes(j) ? { ...sf, status: 'analyzing' } : sf
+        chunkIndices.includes(j) ? { ...sf, status: 'analyzing', error: undefined } : sf
       ));
 
-      const chunkResults = await Promise.all(
+      const chunkResults = await Promise.allSettled(
         chunk.map(async (sf, j) => {
           const idx = i + j;
-          const file = sf.file;
           const [scoreResult, thumbnail, fullImage] = await Promise.all([
-            scoringEngine === 'gpt4o' ? analyzeWithGPT4o(file, finalConfig, openAiApiKey) : analyzeFile(file, finalConfig),
-            generateThumbnail(file),
-            generateFullImage(file),
+            scoringEngine === 'gpt4o'
+              ? analyzeWithGPT4o(sf.file, finalConfig, openAiApiKey)
+              : analyzeFile(sf.file, finalConfig),
+            generateThumbnail(sf.file),
+            generateFullImage(sf.file),
           ]);
-          return { idx, scoreResult, thumbnail, fullImage, file };
+          return { idx, scoreResult, thumbnail, fullImage, file: sf.file };
         })
       );
 
-      for (const { idx, scoreResult, thumbnail, fullImage, file } of chunkResults) {
+      chunkResults.forEach((outcome, j) => {
+        const idx = i + j;
+        if (outcome.status === 'rejected') {
+          failedCount += 1;
+          const message = outcome.reason instanceof Error ? outcome.reason.message : '檔案分析失敗';
+          setScoringFiles((prev) => prev.map((sf, fileIndex) =>
+            fileIndex === idx ? { ...sf, status: 'error', error: message } : sf
+          ));
+          return;
+        }
+
+        const { scoreResult, thumbnail, fullImage, file } = outcome.value;
         results.push({
-          id: `sub-${Date.now()}-${idx}`,
+          id: `sub-${batchId}-${idx}`,
           batchId,
           contestConfig: finalConfig,
           fileName: file.name,
@@ -180,15 +233,26 @@ export default function UploadPage() {
           thumbnail,
           fullImage,
         });
-        setScoringFiles((prev) => prev.map((sf, j) =>
-          j === idx ? { ...sf, status: 'done', score: scoreResult.totalScore } : sf
+        setScoringFiles((prev) => prev.map((sf, fileIndex) =>
+          fileIndex === idx ? { ...sf, status: 'done', score: scoreResult.totalScore } : sf
         ));
-      }
+      });
+
       setCompletedCount(Math.min(i + BATCH_SIZE, initial.length));
     }
 
-    addBatchSubmissions(results);
-    await new Promise((r) => setTimeout(r, 400));
+    if (results.length > 0) addBatchSubmissions(results);
+
+    if (failedCount > 0) {
+      setScoringError(
+        results.length > 0
+          ? `${failedCount} 個檔案分析失敗，已保存 ${results.length} 個成功結果。`
+          : '所有檔案都分析失敗，請確認檔案格式或評分引擎設定後重試。'
+      );
+      return;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 400));
     if (results.length === 1) navigate(`/result/${results[0].id}`);
     else navigate(`/compare/${batchId}`);
   };
@@ -239,7 +303,7 @@ export default function UploadPage() {
                 ] as const).map((m) => (
                   <button
                     key={m.id}
-                    onClick={() => setMode(m.id)}
+                    onClick={() => handleModeChange(m.id)}
                     className={`p-5 rounded-2xl border-2 text-left transition-all duration-200 ${
                       mode === m.id ? 'border-primary bg-primary/5 shadow-lg shadow-primary/10' : 'border-border hover:border-primary/30 bg-card'
                     }`}
@@ -263,7 +327,7 @@ export default function UploadPage() {
                   ] as const).map((sm) => (
                     <button
                       key={sm.id}
-                      onClick={() => setScoringMode(sm.id)}
+                      onClick={() => handleScoringModeChange(sm.id)}
                       className={`p-4 rounded-xl border-2 text-left transition-all ${
                         scoringMode === sm.id ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/20 bg-background'
                       }`}
@@ -449,6 +513,13 @@ export default function UploadPage() {
                 )}
               </motion.div>
 
+              {scoringError && (
+                <div className="mb-4 flex items-center gap-2 rounded-xl border border-danger/20 bg-danger/5 p-3 text-sm text-danger" role="alert">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  {scoringError}
+                </div>
+              )}
+
             <button
               onClick={() => setStep('upload')}
               disabled={!canProceed()}
@@ -477,7 +548,7 @@ export default function UploadPage() {
                     <span className="px-2.5 py-1 rounded-full bg-navy-light text-xs font-medium">主題：{theme}</span>
                   )}
                 </div>
-                <p className="text-xs text-muted mt-2">最多 {MAX_FILES} 個檔案 · 支援批量拖放</p>
+                <p className="text-xs text-muted mt-2">最多 {MAX_FILES} 個檔案 · 單檔上限 25 MB · 支援批量拖放</p>
               </div>
 
               <button onClick={() => setStep('setup')} className="flex items-center gap-1 text-sm text-muted hover:text-foreground mb-4 transition-colors">
@@ -498,8 +569,16 @@ export default function UploadPage() {
                 <p className="text-muted text-sm">支援一次選取多個檔案</p>
               </div>
 
+              {uploadNotice && (
+                <div className="mt-3 flex items-center gap-2 rounded-xl border border-warning/20 bg-warning/8 p-3 text-sm" role="status">
+                  <AlertCircle className="h-4 w-4 shrink-0 text-warning" />
+                  <span className="text-warning">{uploadNotice}</span>
+                  <button type="button" aria-label="關閉提示" onClick={() => setUploadNotice(null)} className="ml-auto px-1 text-warning hover:text-foreground">×</button>
+                </div>
+              )}
+
               {totalFiles >= MAX_FILES && (
-                <div className="mt-3 p-3 rounded-xl bg-warning/8 border border-warning/20 flex items-center gap-2 text-sm">
+                <div className="mt-3 flex items-center gap-2 rounded-xl border border-warning/20 bg-warning/8 p-3 text-sm">
                   <AlertCircle className="w-4 h-4 text-warning flex-shrink-0" />
                   <span className="text-warning font-medium">已達上限 {MAX_FILES} 個檔案</span>
                 </div>
@@ -510,7 +589,15 @@ export default function UploadPage() {
                   <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="mt-5">
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-sm font-semibold">已選擇 {totalFiles} 個檔案</span>
-                      <button onClick={() => { filesWithPreview.forEach((f) => { if (f.preview) URL.revokeObjectURL(f.preview); }); setFilesWithPreview([]); }} className="text-xs text-danger hover:underline">清除全部</button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          previewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+                          previewUrlsRef.current.clear();
+                          setFilesWithPreview([]);
+                        }}
+                        className="text-xs text-danger hover:underline"
+                      >清除全部</button>
                     </div>
                     <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 gap-1.5">
                       {filesWithPreview.map((fp, i) => (
@@ -522,8 +609,13 @@ export default function UploadPage() {
                               <FileText className="w-6 h-6 text-muted" />
                             )}
                           </div>
-                          <button onClick={(e) => { e.stopPropagation(); removeFile(i); }} className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/50 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                            <X className="w-2.5 h-2.5" />
+                          <button
+                            type="button"
+                            aria-label={`移除 ${fp.file.name}`}
+                            onClick={(e) => { e.stopPropagation(); removeFile(i); }}
+                            className="absolute right-1 top-1 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white opacity-100 transition-opacity sm:h-5 sm:w-5 sm:opacity-0 sm:group-hover:opacity-100"
+                          >
+                            <X className="h-3 w-3" />
                           </button>
                         </motion.div>
                       ))}
@@ -552,10 +644,10 @@ export default function UploadPage() {
             <motion.div key="scoring" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-card rounded-2xl border border-border p-6">
               <div className="text-center mb-6">
                 <div className="w-14 h-14 rounded-full gradient-bg mx-auto flex items-center justify-center mb-4 animate-pulse-glow">
-                  {completedCount < scoringFiles.length ? <Loader2 className="w-7 h-7 text-white animate-spin" /> : <CheckCircle2 className="w-7 h-7 text-white" />}
+                  {completedCount < scoringFiles.length ? <Loader2 className="h-7 w-7 animate-spin text-white" /> : scoringError ? <AlertCircle className="h-7 w-7 text-white" /> : <CheckCircle2 className="h-7 w-7 text-white" />}
                 </div>
-                <h3 className="text-lg font-bold mb-1">
-                  {completedCount < scoringFiles.length ? `正在評分... (${completedCount}/${scoringFiles.length})` : '全部評分完成！'}
+                <h3 className="mb-1 text-lg font-bold">
+                  {completedCount < scoringFiles.length ? `正在評分... (${completedCount}/${scoringFiles.length})` : scoringError ? '評分完成，但有檔案失敗' : '全部評分完成！'}
                 </h3>
                 <div className="flex items-center justify-center gap-2 flex-wrap text-xs text-muted">
                   <span>{mode === 'design' && theme ? `設計比賽 · ${theme}` : '填色比賽'}</span>
@@ -570,10 +662,25 @@ export default function UploadPage() {
                   </div>
                 </div>
               </div>
-              <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 gap-1.5 max-h-[400px] overflow-y-auto">
+
+              {scoringError && (
+                <div className="mb-5 flex items-start gap-3 rounded-xl border border-danger/20 bg-danger/5 p-4" role="alert">
+                  <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-danger" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-danger">評分未能全部完成</p>
+                    <p className="mt-1 text-xs leading-5 text-muted">{scoringError}</p>
+                    <div className="mt-3 flex flex-wrap items-center gap-3">
+                      <button type="button" onClick={() => { setScoringError(null); setStep('upload'); }} className="rounded-lg border border-border px-3 py-2 text-xs font-semibold transition-colors hover:bg-card">返回檔案重試</button>
+                      <Link to="/history" className="text-xs font-semibold text-primary hover:underline">查看已保存結果</Link>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-4 gap-1.5 overflow-y-auto max-h-[400px] sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8">
                 {scoringFiles.map((sf, i) => (
-                  <div key={i} className={`relative rounded-lg border overflow-hidden transition-all ${
-                    sf.status === 'done' ? 'border-success/40' : sf.status === 'analyzing' ? 'border-primary/40' : 'border-border opacity-40'
+                  <div key={i} title={sf.error} className={`relative rounded-lg border overflow-hidden transition-all ${
+                    sf.status === 'done' ? 'border-success/40' : sf.status === 'error' ? 'border-danger/50' : sf.status === 'analyzing' ? 'border-primary/40' : 'border-border opacity-40'
                   }`}>
                     <div className="aspect-square bg-navy/40 flex items-center justify-center overflow-hidden relative">
                       {sf.preview ? (
@@ -585,10 +692,15 @@ export default function UploadPage() {
                         </div>
                       )}
                       {sf.status === 'done' && sf.score !== undefined && (
-                        <div className="absolute top-0.5 right-0.5">
-                          <div className={`w-6 h-6 rounded text-white text-[9px] font-bold flex items-center justify-center ${
+                        <div className="absolute right-0.5 top-0.5">
+                          <div className={`flex h-6 w-6 items-center justify-center rounded text-[9px] font-bold text-white ${
                             sf.score >= 75 ? 'bg-success' : sf.score >= 55 ? 'bg-primary' : sf.score >= 40 ? 'bg-warning' : 'bg-danger'
                           }`}>{sf.score}</div>
+                        </div>
+                      )}
+                      {sf.status === 'error' && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-danger/15">
+                          <AlertCircle className="h-5 w-5 text-danger" />
                         </div>
                       )}
                     </div>

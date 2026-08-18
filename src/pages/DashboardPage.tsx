@@ -43,20 +43,23 @@ export default function DashboardPage() {
   // Compute real trend data from submissions (sorted by date)
   const trendData = [...completed]
     .sort((a, b) => new Date(a.uploadedAt).getTime() - new Date(b.uploadedAt).getTime())
-    .map((s, i) => ({
+    .map((s) => ({
       date: new Date(s.uploadedAt).toLocaleDateString('zh-TW', { month: 'short', day: 'numeric' }),
       score: s.score?.totalScore || 0,
       name: s.fileName,
     }));
 
-  // Compute real category averages from submissions
-  const categoryNames = ['創意與原創性', '技術執行力', '視覺呈現', '內容深度', '整體完整性'];
+  // Build the chart from the criteria that actually exist. This keeps custom
+  // scoring dimensions visible instead of showing a row of zeroes.
+  const categoryNames = [...new Set(
+    completed.flatMap((submission) => submission.score?.categories.map((category) => category.name) ?? [])
+  )];
   const categoryAvg = categoryNames.map((name) => {
     const scores = completed
       .map((s) => s.score?.categories.find((c) => c.name === name)?.score)
       .filter((s): s is number => s !== undefined);
     return {
-      name: name.replace('與原創性', '').replace('執行力', '').replace('呈現', '').replace('深度', '').replace('完整性', ''),
+      name: name.length > 6 ? `${name.slice(0, 6)}…` : name,
       avg: scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0,
     };
   });
@@ -182,10 +185,7 @@ export default function DashboardPage() {
                           borderRadius: '12px',
                           fontSize: '13px',
                         }}
-                        formatter={(value: any, _name: any, props: any) => [
-                          `${value} 分`,
-                          props?.payload?.name ?? '',
-                        ]}
+                        formatter={(value) => [`${value ?? 0} 分`, '分數']}
                       />
                       <Area
                         type="monotone"
@@ -260,7 +260,7 @@ export default function DashboardPage() {
                       borderRadius: '12px',
                       fontSize: '13px',
                     }}
-                    formatter={(value: any) => [`${value} 分`, '平均分數']}
+                    formatter={(value) => [`${value ?? 0} 分`, '平均分數']}
                   />
                   <defs>
                     <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
