@@ -5,11 +5,13 @@ interface ProgressBarProps {
   max: number;
   label: string;
   feedback?: string;
+  evidence?: string;
+  confidence?: number;
   delay?: number;
   suffix?: string;
 }
 
-export default function ProgressBar({ value, max, label, feedback, delay = 0, suffix }: ProgressBarProps) {
+export default function ProgressBar({ value, max, label, feedback, evidence, confidence, delay = 0, suffix }: ProgressBarProps) {
   const pct = (value / max) * 100;
 
   const getColor = (p: number) => {
@@ -32,6 +34,9 @@ export default function ProgressBar({ value, max, label, feedback, delay = 0, su
           {suffix && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/15 text-primary font-semibold flex-shrink-0">{suffix}</span>
           )}
+          {confidence !== undefined && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-navy-light text-muted font-medium flex-shrink-0">信心 {confidence}%</span>
+          )}
         </div>
         <span className="text-sm font-bold text-primary flex-shrink-0">{value}<span className="text-muted font-normal">/{max}</span></span>
       </div>
@@ -45,6 +50,11 @@ export default function ProgressBar({ value, max, label, feedback, delay = 0, su
       </div>
       {feedback && (
         <p className="text-xs text-muted leading-relaxed">{feedback}</p>
+      )}
+      {evidence && (
+        <p className="border-l border-primary/30 pl-2 text-[11px] leading-relaxed text-muted/80">
+          <span className="font-semibold text-primary/80">評分依據：</span>{evidence}
+        </p>
       )}
     </motion.div>
   );

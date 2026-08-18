@@ -4,7 +4,7 @@
  * Supports two modes: coloring (pixel-based) and design (pixel + theme context).
  */
 
-import type { ScoreResult, ContestConfig, CriterionDef } from '../store/appStore';
+import type { ScoreResult, ContestConfig } from '../store/appStore';
 
 // ─── Image Analysis ───
 
@@ -95,9 +95,16 @@ function analyzeImageData(imageData: ImageData): ImageMetrics {
 function loadImageFromFile(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = URL.createObjectURL(file);
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(img);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('無法讀取圖片'));
+    };
+    img.src = objectUrl;
   });
 }
 
@@ -174,15 +181,44 @@ function getMetricFn(metricType: string): (m: ImageMetrics) => number {
 
 // ─── Feedback generators ───
 
+function evidenceFor(criterionId: string, m: ImageMetrics): string {
+  switch (criterionId) {
+    case 'technical':
+      return `解析度 ${m.width}×${m.height}、亮度標準差 ${m.brightnessStdDev.toFixed(1)}、長寬比 ${m.aspectRatio.toFixed(2)}。`;
+    case 'visual':
+      return `平均亮度 ${m.avgBrightness.toFixed(0)}/255、平均飽和度 ${m.saturationAvg.toFixed(0)}/100、色彩豐富度 ${m.colorfulness.toFixed(0)}/100。`;
+    case 'content':
+      return `邊緣密度 ${(m.edgeDensity * 100).toFixed(1)}%、量化色彩覆蓋 ${(m.uniqueColorRatio * 100).toFixed(1)}%。`;
+    case 'creativity':
+      return `以色彩豐富度 ${m.colorfulness.toFixed(0)}/100、邊緣密度 ${(m.edgeDensity * 100).toFixed(1)}% 作為可量化代理；像素分析無法直接證明原創性。`;
+    case 'theme':
+      return `以色彩豐富度 ${m.colorfulness.toFixed(0)}/100、細節密度 ${(m.edgeDensity * 100).toFixed(1)}% 作為視覺代理；本地分析無法理解主題語意。`;
+    case 'impact':
+      return `亮度標準差 ${m.brightnessStdDev.toFixed(1)}、色彩豐富度 ${m.colorfulness.toFixed(0)}/100、邊緣密度 ${(m.edgeDensity * 100).toFixed(1)}%。`;
+    case 'completeness':
+      return '由創意、技術、視覺與內容四項可量化指標的平均值計算。';
+    default:
+      return '此自定義項目使用選定的像素指標作為評分代理，無法取代人工語意判斷。';
+  }
+}
+
+function confidenceFor(criterionId: string): number {
+  if (criterionId === 'technical') return 95;
+  if (criterionId === 'visual' || criterionId === 'content') return 90;
+  if (criterionId === 'creativity' || criterionId === 'impact') return 65;
+  if (criterionId === 'theme') return 40;
+  return 75;
+}
+
 function feedbackFor(criterionId: string, m: ImageMetrics, score: number, config?: ContestConfig): string {
   const themeLabel = config?.theme ? `「${config.theme}」` : '';
 
   switch (criterionId) {
     case 'theme':
-      if (score >= 75) return `作品在視覺複雜度與色彩豐富度上表現優秀，具備充分詮釋主題${themeLabel}的視覺基礎。`;
-      if (score >= 55) return `作品具有一定的視覺表現力，但在主題${themeLabel}的深度詮釋上仍有提升空間。`;
-      if (score >= 35) return `作品的視覺元素較為單薄，建議增加更多與主題${themeLabel}相關的視覺層次。`;
-      return `作品在視覺豐富度上不足，難以充分傳達主題${themeLabel}的意涵。`;
+      if (score >= 75) return `作品的色彩與細節等視覺代理指標表現優秀；本地像素分析無法直接驗證主題${themeLabel}的語意契合度。`;
+      if (score >= 55) return `作品具有一定的視覺表現力；主題${themeLabel}的語意契合度需要 GPT-4o Vision 或人工評審確認。`;
+      if (score >= 35) return `作品的視覺層次較單薄；僅憑本地像素分析無法證明其是否符合主題${themeLabel}。`;
+      return `作品的可量化視覺豐富度不足；本地分析不能取代對主題${themeLabel}的語意判斷。`;
 
     case 'creativity':
       if (score >= 80) return `色彩豐富度高（${m.colorfulness.toFixed(0)}/100），畫面細節層次分明，展現出較強的創意表達。`;
@@ -238,11 +274,15 @@ function scoreFromImageMetrics(m: ImageMetrics, config?: ContestConfig): ScoreRe
     // Use metricType if set (custom criteria), otherwise fall back to id
     const fn = getMetricFn(c.metricType || c.id);
     const score = fn(m);
+    const metricType = c.metricType || c.id;
     return {
+      id: c.id,
       name: c.name,
       score,
       maxScore: 100,
       feedback: feedbackFor(c.id, m, score, config),
+      evidence: evidenceFor(metricType, m),
+      confidence: confidenceFor(metricType),
       weight: c.weight,
     };
   });
@@ -265,7 +305,7 @@ function scoreFromImageMetrics(m: ImageMetrics, config?: ContestConfig): ScoreRe
 function buildComment(m: ImageMetrics, total: number, cats: ScoreResult['categories'], config?: ContestConfig): string {
   const best = cats.reduce((a, b) => (a.score > b.score ? a : b));
   const worst = cats.reduce((a, b) => (a.score < b.score ? a : b));
-  let level = total >= 80 ? '表現優秀' : total >= 65 ? '表現中等偏上' : total >= 50 ? '表現尚可' : total >= 35 ? '有較大改善空間' : '需要重大改進';
+  const level = total >= 80 ? '表現優秀' : total >= 65 ? '表現中等偏上' : total >= 50 ? '表現尚可' : total >= 35 ? '有較大改善空間' : '需要重大改進';
 
   let prefix = '';
   if (config?.mode === 'design' && config.theme) {
@@ -273,8 +313,9 @@ function buildComment(m: ImageMetrics, total: number, cats: ScoreResult['categor
   } else if (config?.mode === 'coloring') {
     prefix = '【填色比賽】';
   }
+  const engineLabel = config?.scoringEngine === 'gpt4o' ? 'GPT-4o Vision' : '本地客觀影像指標';
 
-  return `${prefix}此作品經 AI 分析後綜合評分為 ${total} 分（加權平均），整體${level}。` +
+  return `${prefix}此作品經${engineLabel}分析後綜合評分為 ${total} 分（加權平均），整體${level}。` +
     `圖片解析度 ${m.width}×${m.height}${m.isHighRes ? '（高解析度）' : ''}。` +
     `在${cats.length}個評估維度中，「${best.name}」表現最佳（${best.score} 分），` +
     `「${worst.name}」相對較弱（${worst.score} 分）。` +
@@ -363,10 +404,13 @@ function scoreFromFileMetadata(file: File, config?: ContestConfig): ScoreResult 
   ];
 
   const categories = criteria.map((c, i) => ({
+    id: c.id,
     name: c.name,
     score: clamp(base + (i % 2 === 0 ? 3 : -3), 20, 70),
     maxScore: 100,
     feedback: '非圖片格式，無法進行視覺分析。建議上傳圖片以獲得完整評估。',
+    evidence: `僅使用副檔名 .${ext}、檔案大小 ${sizeMB.toFixed(1)} MB 與檔名長度作為低可信度估算。`,
+    confidence: 20,
     weight: c.weight,
   }));
 
@@ -439,6 +483,10 @@ export async function analyzeFile(file: File, config?: ContestConfig): Promise<S
       canvas.width = Math.round(img.width * scale);
       canvas.height = Math.round(img.height * scale);
       const ctx = canvas.getContext('2d')!;
+      // Composite transparency on white so transparent PNGs are not measured
+      // as artificial black pixels.
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       URL.revokeObjectURL(img.src);
