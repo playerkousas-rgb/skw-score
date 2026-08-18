@@ -28,7 +28,7 @@ function AppContent() {
       </main>
       {!isEmbed && (
         <footer className="py-6 text-center text-sm text-muted print:hidden border-t border-border mt-auto">
-          &copy; 2026 SKWSCOUT All rights reserved.
+          Copyright &copy; 2026 Scout System. All rights reserved.
         </footer>
       )}
     </div>

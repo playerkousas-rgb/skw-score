@@ -125,7 +125,7 @@ export default function ResultPage() {
               <ArrowLeft className="w-5 h-5" />
             </button>
             <div>
-              <h1 className="text-2xl font-bold">AI 評分報告</h1>
+              <h1 className="text-2xl font-bold">{submission.contestConfig?.scoringEngine === 'gpt4o' ? 'GPT-4o 評分報告' : '客觀分析報告'}</h1>
               <div className="flex items-center gap-2 text-sm text-muted mt-0.5">
                 <FileText className="w-3.5 h-3.5" />
                 {fileName}
@@ -173,8 +173,8 @@ export default function ResultPage() {
             <span className={`px-3 py-1 rounded-full text-xs font-bold ${contestConfig.mode === 'coloring' ? 'bg-primary/10 text-primary' : 'bg-accent/10 text-accent'}`}>
               {contestConfig.mode === 'coloring' ? '🎨 填色比賽' : '✏️ 設計比賽'}
             </span>
-            <span className={`px-3 py-1 rounded-full text-xs font-bold ${contestConfig.scoringMode === 'ai' ? 'bg-info/10 text-info' : 'bg-warning/10 text-warning'}`}>
-              {contestConfig.scoringMode === 'ai' ? '🤖 AI 評分' : '⚙️ 自定義'}
+            <span className={`px-3 py-1 rounded-full text-xs font-bold ${contestConfig.scoringEngine === 'gpt4o' ? 'bg-info/10 text-info' : 'bg-success/10 text-success'}`}>
+              {contestConfig.scoringEngine === 'gpt4o' ? '🤖 GPT-4o Vision' : '📐 本地客觀分析'}
             </span>
             {contestConfig.theme && <span className="text-sm font-semibold">主題：{contestConfig.theme}</span>}
             <span className="text-xs text-muted">{contestConfig.criteria.length} 個維度（加權 100%）</span>
@@ -301,6 +301,8 @@ export default function ResultPage() {
                         value={cat.score}
                         max={cat.maxScore}
                         feedback={cat.feedback}
+                        evidence={cat.evidence}
+                        confidence={cat.confidence}
                         delay={i * 0.1}
                         suffix={`佔 ${pct}%`}
                       />
@@ -351,7 +353,9 @@ export default function ResultPage() {
                 <p className="text-xs text-muted leading-relaxed">
                   <strong>評分方法：</strong>
                   {isImage
-                    ? '基於客戶端像素級分析（亮度、對比度、色彩、邊緣密度、解析度等），各維度按百分比權重加權計算總分。所有分析在瀏覽器本地完成。'
+                    ? contestConfig?.scoringEngine === 'gpt4o'
+                      ? 'GPT-4o Vision 依照固定評分錨點、逐項可核對證據與信心度進行評估；總分由系統按照設定權重重新計算，避免模型自行修改權重。'
+                      : '本地客觀影像分析使用亮度、對比度、色彩、邊緣密度與解析度等可量化指標；創意與主題僅為像素代理，不能取代 GPT-4o Vision 或人工語意評審。'
                     : '非圖片格式，僅基於檔案元數據估算。建議上傳圖片以獲得完整分析。'}
                 </p>
               </div>

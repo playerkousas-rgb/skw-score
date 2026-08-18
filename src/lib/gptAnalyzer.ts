@@ -1,5 +1,22 @@
 import type { ScoreResult, ContestConfig } from '../store/appStore';
 
+interface ModelCategory {
+  id?: unknown;
+  name?: unknown;
+  score?: unknown;
+  confidence?: unknown;
+  evidence?: unknown;
+  feedback?: unknown;
+}
+
+interface ModelResponse {
+  categories?: unknown;
+  aiComment?: unknown;
+  suggestions?: unknown;
+  strengths?: unknown;
+  tags?: unknown;
+}
+
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -9,33 +26,73 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string').slice(0, 8)
+    : [];
+}
+
+function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(min, Math.min(max, Math.round(value)))
+    : fallback;
+}
+
 export async function analyzeWithGPT4o(file: File, config: ContestConfig, apiKey: string): Promise<ScoreResult> {
   if (!apiKey) {
     throw new Error('請先輸入 OpenAI API Key');
   }
+  if (!file.type.startsWith('image/')) {
+    throw new Error('GPT-4o Vision 目前只支援圖片檔案，請改用圖片或本地分析。');
+  }
 
   const base64Image = await fileToBase64(file);
-
   const criteriaList = config.criteria
-    .map((c) => `- ${c.name} (權重: ${c.weight}%): ${c.description || '無詳細描述'}`)
+    .map((criterion) => [
+      `id: ${criterion.id}`,
+      `名稱: ${criterion.name}`,
+      `權重: ${criterion.weight}%`,
+      `評估範圍: ${criterion.description || '依名稱判斷，但只評估畫面中可見的證據'}`,
+    ].join('｜'))
     .join('\n');
 
-  const systemPrompt = `你是一位專業的藝術與設計評審。你正在評估一份參加 ${config.mode === 'coloring' ? '填色' : '設計'} 比賽的作品。
-${config.theme ? `本次比賽的主題為：「${config.theme}」` : ''}
+  const systemPrompt = `你是一位嚴謹、可重複、以證據為本的藝術與設計比賽評審。請評估一張參賽圖片，而不是評估作者或檔案名稱。
+比賽類型：${config.mode === 'coloring' ? '填色' : '設計'}
+${config.theme ? `比賽主題：${config.theme}` : '沒有指定主題'}
+${config.description ? `比賽補充說明：${config.description}` : ''}
 
-請嚴格根據以下評分指標對作品進行評分與評價：
+評分項目如下，每一項必須獨立評估，不可用同一個整體印象重複加分：
 ${criteriaList}
 
-你需要回傳一份嚴格且有效的 JSON 格式資料，符合以下結構。所有分數（score）為單項滿分 100 分制（尚未加權）。totalScore 是根據各項分數乘以其權重後的加權平均總分（整數）。
+評分規則：
+1. 每項只使用 0 至 100 的整數。請先找出畫面中可見的證據，再給分；不要因為圖片更鮮豔、元素更多或解析度更高就自動判定為更有創意或更符合主題。
+2. 使用一致的錨點：0 = 沒有可見證據，25 = 明顯不足，50 = 基本達標，75 = 清楚且穩定地達標，100 = 卓越、完整且有充分證據。大多數普通作品應落在 45 至 80，不要把分數集中在 90 分以上。
+3. 技術品質可以評估解析度、清晰度、曝光、對比與瑕疵；創意、主題契合、內容深度等項目必須引用畫面中的具體構思、符號、敘事或視覺選擇，不可只用色彩數量代替。
+4. 若某項無法單從圖片可靠判斷，降低 confidence，並在 evidence 說明限制；不要猜測作者意圖。不要使用檔名、裝置、地點、人物身分或任何受保護特徵作為評分依據。
+5. 每個項目輸出一個唯一的 id、分數、0 至 100 的 confidence、一句可核對的 evidence，以及一句針對該項目的 feedback。輸出項目必須與上方清單完全一致。
+6. totalScore 只是暫存值，系統會按照權重重新計算；請仍然輸出加權平均的整數。
+
+只輸出有效 JSON，不要 Markdown 或額外文字：
 {
   "totalScore": number,
   "categories": [
-    { "name": "評分指標名稱", "score": number, "maxScore": 100, "feedback": "針對此指標的簡短專業評語" }
+    {
+      "id": "評分項目 id",
+      "name": "評分項目名稱",
+      "score": number,
+      "confidence": number,
+      "evidence": "畫面中可核對的證據或判斷限制",
+      "feedback": "針對該項目的具體評語"
+    }
   ],
-  "aiComment": "評審的綜合專業評語（大約 50-100 字）",
-  "suggestions": ["具體建議1", "具體建議2", "具體建議3"],
-  "strengths": ["優點1", "優點2"],
-  "tags": ["標籤1", "標籤2", "標籤3"]
+  "aiComment": "整體評語，說明最強與最弱項目及主要可見證據，約 50 至 100 字",
+  "suggestions": ["具體且可執行的建議"],
+  "strengths": ["有證據支持的優點"],
+  "tags": ["中性標籤"]
 }`;
 
   try {
@@ -52,52 +109,56 @@ ${criteriaList}
           {
             role: 'user',
             content: [
-              { type: 'text', text: '請評估這張圖片並輸出符合要求的 JSON。' },
-              { type: 'image_url', image_url: { url: base64Image } },
+              { type: 'text', text: '請依照上述評分規則，先逐項找證據，再輸出嚴格 JSON。' },
+              { type: 'image_url', image_url: { url: base64Image, detail: 'high' } },
             ],
           },
         ],
         response_format: { type: 'json_object' },
-        max_tokens: 1500,
-        temperature: 0.7,
+        max_tokens: 2400,
+        temperature: 0.2,
       }),
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
+      const errorData = await response.json() as { error?: { message?: string } };
       throw new Error(errorData.error?.message || 'GPT-4o 分析失敗');
     }
 
-    const data = await response.json();
-    const content = data.choices[0].message.content;
-    const parsed = JSON.parse(content);
+    const data = await response.json() as { choices?: { message?: { content?: unknown } }[] };
+    const content = data.choices?.[0]?.message?.content;
+    if (typeof content !== 'string' || !content.trim()) {
+      throw new Error('AI 沒有回傳有效的評分內容，請重試。');
+    }
 
-    // 映射確保指標一致性，並加入原本的 weight
-    const parsedCategories = Array.isArray(parsed.categories) ? parsed.categories : [];
-    const mappedCategories = config.criteria.map((c) => {
-      const matching = parsedCategories.find((pc: { name?: unknown }) => pc.name === c.name) as { score?: unknown; feedback?: unknown } | undefined;
-      const score = typeof matching?.score === 'number' && Number.isFinite(matching.score)
-        ? Math.max(0, Math.min(100, Math.round(matching.score)))
-        : 60;
+    const parsed = JSON.parse(content) as ModelResponse;
+    const parsedCategories: ModelCategory[] = Array.isArray(parsed.categories)
+      ? parsed.categories.filter(isRecord)
+      : [];
+
+    const mappedCategories = config.criteria.map((criterion) => {
+      const matching = parsedCategories.find((category) => category.id === criterion.id)
+        ?? parsedCategories.find((category) => category.name === criterion.name);
+      if (!matching || typeof matching.score !== 'number' || !Number.isFinite(matching.score)) {
+        throw new Error(`AI 回傳的「${criterion.name}」評分不完整，請重試。`);
+      }
+
       return {
-        name: c.name,
-        score,
+        id: criterion.id,
+        name: criterion.name,
+        score: clampNumber(matching.score, 0, 100, 50),
         maxScore: 100,
-        feedback: typeof matching?.feedback === 'string' ? matching.feedback : 'AI 未提供此項目的詳細評語。',
-        weight: c.weight,
+        confidence: clampNumber(matching.confidence, 0, 100, 50),
+        evidence: typeof matching.evidence === 'string' ? matching.evidence : 'AI 未提供可核對的證據。',
+        feedback: typeof matching.feedback === 'string' ? matching.feedback : 'AI 未提供此項目的詳細評語。',
+        weight: criterion.weight,
       };
     });
 
-    // Always calculate locally so an incorrect model total cannot override the
-    // configured weights shown in the report.
-    const totalWeight = mappedCategories.reduce((sum, cat) => sum + cat.weight, 0) || 1;
+    const totalWeight = mappedCategories.reduce((sum, category) => sum + category.weight, 0) || 1;
     const calculatedTotal = Math.round(
-      mappedCategories.reduce((sum, cat) => sum + cat.score * cat.weight, 0) / totalWeight
+      mappedCategories.reduce((sum, category) => sum + category.score * category.weight, 0) / totalWeight
     );
-
-    const asStringArray = (value: unknown) => Array.isArray(value)
-      ? value.filter((item): item is string => typeof item === 'string').slice(0, 8)
-      : [];
 
     return {
       totalScore: calculatedTotal,

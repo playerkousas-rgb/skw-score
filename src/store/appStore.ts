@@ -26,6 +26,7 @@ export interface CriterionDef {
 export interface ContestConfig {
   mode: ContestMode;
   scoringMode: ScoringMode;
+  scoringEngine?: ScoringEngine;
   theme: string;
   description: string;
   criteria: CriterionDef[];
@@ -48,10 +49,13 @@ export interface Submission {
 export interface ScoreResult {
   totalScore: number;
   categories: {
+    id?: string;
     name: string;
     score: number;
     maxScore: number;
     feedback: string;
+    evidence?: string;
+    confidence?: number;
     weight?: number;
   }[];
   aiComment: string;
@@ -77,6 +81,7 @@ interface AppState {
 }
 
 export type ScoringMode = 'ai' | 'custom';
+export type ScoringEngine = 'local' | 'gpt4o';
 
 export const MAX_FILES = 100;
 

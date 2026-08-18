@@ -8,7 +8,7 @@ import {
   AlertCircle, Cpu, SlidersHorizontal,
 } from 'lucide-react';
 import {
-  useAppStore, type Submission, type ContestConfig, type CriterionDef, type ContestMode, type ScoringMode,
+  useAppStore, type Submission, type ContestConfig, type CriterionDef, type ContestMode, type ScoringMode, type ScoringEngine,
   DEFAULT_COLORING_CRITERIA, DEFAULT_DESIGN_CRITERIA, MAX_FILES, METRIC_TYPE_OPTIONS, type MetricType,
 } from '../store/appStore';
 import { analyzeWithGPT4o } from "../lib/gptAnalyzer";
@@ -34,7 +34,7 @@ export default function UploadPage() {
   // Contest config
   const [mode, setMode] = useState<ContestMode>('coloring');
   const [scoringMode, setScoringMode] = useState<ScoringMode>('ai');
-  const [scoringEngine, setScoringEngine] = useState<'local' | 'gpt4o'>('local');
+  const [scoringEngine, setScoringEngine] = useState<ScoringEngine>('local');
   const [theme, setTheme] = useState('');
   const [description, setDescription] = useState('');
   const [criteria, setCriteria] = useState<CriterionDef[]>(DEFAULT_COLORING_CRITERIA);
@@ -169,6 +169,7 @@ export default function UploadPage() {
 
     const finalConfig: ContestConfig = {
       ...contestConfig,
+      scoringEngine,
       criteria: scoringMode === 'custom'
         ? criteria.filter((c) => c.name.trim())
         : criteria,
@@ -322,7 +323,7 @@ export default function UploadPage() {
                 <h3 className="font-bold text-sm mb-3">評分模式</h3>
                 <div className="grid grid-cols-2 gap-3">
                   {([
-                    { id: 'ai' as ScoringMode, icon: Cpu, title: 'AI 一般評分', desc: '使用預設的五維度評分標準' },
+                    { id: 'ai' as ScoringMode, icon: Cpu, title: '預設評分標準', desc: '使用預設的五維度評分標準' },
                     { id: 'custom' as ScoringMode, icon: SlidersHorizontal, title: '自定義評分', desc: '自訂評分項目、權重與佔比' },
                   ] as const).map((sm) => (
                     <button
@@ -474,12 +475,12 @@ export default function UploadPage() {
                 <h3 className="font-bold text-sm mb-3">選擇評分引擎</h3>
                 <div className="grid sm:grid-cols-2 gap-3 mb-4">
                   {[
-                    { id: 'local', icon: Cpu, title: '本地快速分析', desc: '基於像素運算，速度快且免費' },
-                    { id: 'gpt4o', icon: Sparkles, title: 'GPT-4o Vision', desc: '專業藝術評分，具備真實鑑賞力' },
+                    { id: 'local', icon: Cpu, title: '本地客觀分析', desc: '基於可量化像素指標，速度快且免費；不判斷主題語意' },
+                    { id: 'gpt4o', icon: Sparkles, title: 'GPT-4o Vision', desc: '固定評分錨點、逐項引用證據，適合主題與創意判斷' },
                   ].map((eng) => (
                     <button
                       key={eng.id}
-                      onClick={() => setScoringEngine(eng.id as 'local' | 'gpt4o')}
+                      onClick={() => setScoringEngine(eng.id as ScoringEngine)}
                       className={`flex items-start gap-3 p-4 rounded-xl border text-left transition-all ${scoringEngine === eng.id ? 'bg-primary/10 border-primary shadow-sm shadow-primary/10' : 'bg-card border-border hover:border-primary/50'}`}
                     >
                       <eng.icon className={`w-5 h-5 flex-shrink-0 mt-0.5 ${scoringEngine === eng.id ? 'text-primary' : 'text-muted'}`} />
@@ -541,8 +542,8 @@ export default function UploadPage() {
                   <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${mode === 'coloring' ? 'bg-primary/10 text-primary' : 'bg-accent/10 text-accent'}`}>
                     {mode === 'coloring' ? '🎨 填色' : '✏️ 設計'}
                   </span>
-                  <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${scoringMode === 'ai' ? 'bg-info/10 text-info' : 'bg-warning/10 text-warning'}`}>
-                    {scoringMode === 'ai' ? '🤖 AI 評分' : '⚙️ 自定義'}
+                  <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${scoringEngine === 'gpt4o' ? 'bg-info/10 text-info' : scoringMode === 'custom' ? 'bg-warning/10 text-warning' : 'bg-success/10 text-success'}`}>
+                    {scoringMode === 'custom' ? '⚙️ 自定義評分' : scoringEngine === 'gpt4o' ? '🤖 GPT-4o Vision' : '📐 本地客觀分析'}
                   </span>
                   {mode === 'design' && theme && (
                     <span className="px-2.5 py-1 rounded-full bg-navy-light text-xs font-medium">主題：{theme}</span>
@@ -634,7 +635,7 @@ export default function UploadPage() {
                 whileTap={totalFiles > 0 ? { scale: 0.99 } : {}}
               >
                 <Sparkles className="w-5 h-5" />
-                {totalFiles > 1 ? `批量評分 ${totalFiles} 個作品` : totalFiles === 1 ? '開始 AI 評分' : '請先上傳作品'}
+                {totalFiles > 1 ? `批量評分 ${totalFiles} 個作品` : totalFiles === 1 ? '開始評分' : '請先上傳作品'}
               </motion.button>
             </motion.div>
           )}
@@ -652,7 +653,7 @@ export default function UploadPage() {
                 <div className="flex items-center justify-center gap-2 flex-wrap text-xs text-muted">
                   <span>{mode === 'design' && theme ? `設計比賽 · ${theme}` : '填色比賽'}</span>
                   <span>·</span>
-                  <span>{scoringMode === 'ai' ? 'AI 一般評分' : '自定義評分'}</span>
+                  <span>{scoringMode === 'custom' ? '自定義評分' : scoringEngine === 'gpt4o' ? 'GPT-4o Vision' : '本地客觀分析'}</span>
                   <span>·</span>
                   <span>{criteria.filter((c) => c.name.trim()).length} 個維度</span>
                 </div>

@@ -204,9 +204,11 @@ export default function ComparePage() {
               {batchItems[0].contestConfig.mode === 'coloring' ? '🎨 填色比賽' : '✏️ 設計比賽'}
             </span>
             <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-              batchItems[0].contestConfig.scoringMode === 'ai' ? 'bg-info/10 text-info' : 'bg-warning/10 text-warning'
+              batchItems[0].contestConfig.scoringEngine === 'gpt4o' ? 'bg-info/10 text-info' : batchItems[0].contestConfig.scoringMode === 'custom' ? 'bg-warning/10 text-warning' : 'bg-success/10 text-success'
             }`}>
-              {batchItems[0].contestConfig.scoringMode === 'ai' ? '🤖 AI 評分' : '⚙️ 自定義評分'}
+              {batchItems[0].contestConfig.scoringMode === 'custom'
+                ? '⚙️ 自定義評分'
+                : batchItems[0].contestConfig.scoringEngine === 'gpt4o' ? '🤖 GPT-4o Vision' : '📐 本地客觀分析'}
             </span>
             {batchItems[0].contestConfig.theme && (
               <span className="text-sm font-semibold">主題：{batchItems[0].contestConfig.theme}</span>
