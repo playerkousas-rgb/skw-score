@@ -1,0 +1,42 @@
+# 文件與說明檔
+*.md
+docs/
+
+# 測試與覆蓋率報告
+tests/
+test/
+__tests__/
+*.test.*
+*.spec.*
+coverage/
+
+# 腳本與輔助工具
+scripts/
+tools/
+
+# 原始設計檔、壓縮檔與非前端直接下載之文件
+*.psd
+*.ai
+*.sketch
+*.fig
+*.xd
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+*.pdf
+
+# CI/CD 與版本控制設定
+.github/
+.git/
+
+# 本地環境、快取與建置暫存
+node_modules/
+dist/
+.vercel/
+.env.local
+.env.*.local
+*.log
+.DS_Store
